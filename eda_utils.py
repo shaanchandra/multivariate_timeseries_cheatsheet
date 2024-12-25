@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import seaborn as sns
+from scipy import stats
 from statsmodels.tsa.seasonal import seasonal_decompose
 
 import matplotlib.pyplot as plt
@@ -21,10 +22,11 @@ class MultiVariate_TS_EDA():
     mv_ts : pd.DataFrame
         The multivariate time series data.
     """
-    def __init__(self, config, mv_ts):
+    def __init__(self, config, mv_ts, meta_data):
         self.seq_identifier_col = config['seq_identifier_col'] 
         self.time_step_col = config['time_step_col'] 
         self.mv_ts = mv_ts
+        self.meta_data = meta_data
     
     
     def treat_nans(self, treatment='impute'):
@@ -94,6 +96,41 @@ class MultiVariate_TS_EDA():
             print(">> Duplicates removed from the data...")
             print(">> New shape of the data:  ", self.mv_ts.shape)
         return duplicates
+
+
+
+    def treat_target_outliers(self, method='iqr'):
+        """
+        Treats outliers in the target variable of time series data using the specified method.
+
+        Parameters
+        ----------
+        method : str, optional
+            The method to use for outlier treatment ('iqr' or 'z-score'). Default is 'iqr'.
+        """
+    
+        batch_ids_before = self.mv_ts[self.seq_identifier_col].unique()
+        size_before = self.mv_ts.shape[0]
+
+        if method == 'iqr':
+            Q1 = self.mv_ts['5K_VCC'].quantile(0.005)
+            Q3 = self.mv_ts['5K_VCC'].quantile(0.999)
+            IQR = Q3 - Q1
+            self.mv_ts = self.mv_ts[~((self.mv_ts['5K_VCC'] < Q1) | (self.mv_ts['5K_VCC'] > Q3))]
+        elif method == 'z-score':
+            z = np.abs(stats.zscore(self.mv_ts['5K_VCC']))
+            self.mv_ts['5K_VCC'] = self.mv_ts['5K_VCC'][(z < 3).all(axis=1)]
+        else:
+            raise ValueError("Invalid method. Choose either 'iqr' or 'z-score'")
+        
+        batch_ids_after = self.mv_ts[self.seq_identifier_col].unique()
+
+        if self.mv_ts.shape[0] == size_before:
+            print("\n\n>> No outliers found in the target variable...")
+        else:            
+            print(f"\n\n>> IQR range for target variable = {Q1} to {Q3}")
+            print(f">> {size_before - self.mv_ts.shape[0]} outlier rows found in target variable, removed using {method} method...")
+            print(f">> Total batches removed = {len(batch_ids_before) - len(batch_ids_after)}")
     
 
     
@@ -102,7 +139,7 @@ class MultiVariate_TS_EDA():
         Plots the distribution of sequence lengths in the time series data along with marking the median length.
         """
         seq_lens = self.mv_ts.groupby(self.seq_identifier_col).size()
-        plt.figure(figsize=(10, 5))
+        plt.figure(figsize=(8, 4))
         sns.histplot(seq_lens, bins=10)
         ax = sns.histplot(seq_lens, kde=True, bins=15, color="blue")
 
@@ -157,7 +194,6 @@ class MultiVariate_TS_EDA():
         ax.set_ylabel("Value", fontsize=12)
         ax.legend()
 
-
         # Plot the time-series decomposition plots of the selected time-sereis
         result = self.ts_decomopose(column)
 
@@ -169,6 +205,41 @@ class MultiVariate_TS_EDA():
         axes[0].set_title(f"Trend for {column}", fontsize=14)
         axes[1].set_title(f"Seasonality for {column}", fontsize=14)
         axes[2].set_title(f"Residual for {column}", fontsize=14)
+
+
+
+    
+    def batch_start_time_corr_with_yield(self):
+        """
+        Analyzes the correlation between batch start time and yield (5K_VCC) by plotting and calculating rolling means.
+        
+        Returns:
+            pd.DataFrame: A DataFrame containing the merged data with batch start times and 5K_VCC values.
+        """
+
+        # Get the rows with the highest TIME_STEP for each BATCH_ID
+        max_time_step_df = self.mv_ts.loc[self.mv_ts.groupby(self.seq_identifier_col)[self.time_step_col].idxmax(), [self.seq_identifier_col, 'START_TIME', '5K_VCC']]
+
+        # Merge with meta_data
+        merged_df = pd.merge(self.meta_data, max_time_step_df, on=self.seq_identifier_col)
+        merged_df['START_TIME'] = pd.to_datetime(merged_df['START_TIME']).dt.strftime('%d-%m-%y')
+
+        # Plot the correlation between batch start time and yield
+        plt.figure(figsize=(35, 10))
+        sns.lineplot(data=merged_df, x='START_TIME', y='5K_VCC', marker='o')
+        # Calculate rolling mean
+        rolling_mean1 = merged_df['5K_VCC'].rolling(window=10).mean()
+        rolling_mean2 = merged_df['5K_VCC'].rolling(window=50).mean()
+        # Plot the rolling mean
+        sns.lineplot(data=merged_df, x='START_TIME', y=rolling_mean1, label='Rolling Mean - 10', linewidth=3)
+        sns.lineplot(data=merged_df, x='START_TIME', y=rolling_mean2, label='Rolling Mean - 50', linewidth=3)
+        plt.title('5K_VCC over Time')
+        plt.xlabel('Batch Start Time')
+        plt.ylabel('5K_VCC')
+        plt.xticks(rotation=90)
+        plt.show()
+
+        return merged_df
         
 
     
