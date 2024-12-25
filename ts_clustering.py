@@ -3,8 +3,15 @@ import pandas as pd
 from matplotlib import pyplot as plt
 import seaborn as sns
 
+import torch
+from torch.utils.data import DataLoader, TensorDataset
+
+import torch.nn as nn
+import torch.optim as optim
+
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import MinMaxScaler
 from sklearn.decomposition import PCA
 
 
@@ -21,7 +28,11 @@ class Multivariate_TS_Clustering:
     meta_data : pd.DataFrame
         The metadata associated with the time series data.
     """
-    def __init__(self, mv_ts, meta_data):
+    def __init__(self, config, mv_ts, meta_data):
+        self.seq_identifier_col = config['seq_identifier_col'] 
+        self.time_step_col = config['time_step_col'] 
+        self.ts_cols = config['ts_cols']
+
         self.mv_ts = mv_ts
         self.meta_data = meta_data
 
@@ -92,7 +103,7 @@ class Multivariate_TS_Clustering:
 
 
 
-        
+
     
 
     def visualize_cluster_differences(self):
@@ -128,3 +139,107 @@ class Multivariate_TS_Clustering:
 
         plt.tight_layout()
         plt.show()
+
+
+
+    
+    def plot_multivariate_ts_as_image(self, selected_batch_id):
+        filtered_data = self.mv_ts[self.mv_ts[self.seq_identifier_col] == selected_batch_id]
+
+        # Min-max scale the time-series values
+        scaler = MinMaxScaler()
+        # scaled_data = filtered_data.copy()
+        filtered_data[self.ts_cols] = scaler.fit_transform(filtered_data[self.ts_cols])
+
+        # Plot the heatmap
+        plt.figure(figsize=(20, 10))
+        sns.heatmap(filtered_data[self.ts_cols].T)
+        plt.title('Multi-variate Time-series Heatmap')
+        plt.xlabel('Time Steps')
+        plt.ylabel('Time-series Variables')
+        plt.show()
+
+
+
+
+
+
+
+# class CNNEncoder(nn.Module):
+#     def __init__(self, input_channels, latent_dim):
+#         super(CNNEncoder, self).__init__()
+#         self.encoder = nn.Sequential(
+#             nn.Conv1d(input_channels, 16, kernel_size=3, stride=2, padding=1),
+#             nn.ReLU(),
+#             nn.Conv1d(16, 32, kernel_size=3, stride=2, padding=1),
+#             nn.ReLU(),
+#             nn.Conv1d(32, 64, kernel_size=3, stride=2, padding=1),
+#             nn.ReLU(),
+#             nn.Flatten(),
+#             nn.Linear(64 * (input_channels // 8), latent_dim)
+#         )
+
+#     def forward(self, x):
+#         return self.encoder(x)
+
+# class CNNDecoder(nn.Module):
+#     def __init__(self, latent_dim, output_channels):
+#         super(CNNDecoder, self).__init__()
+#         self.decoder = nn.Sequential(
+#             nn.Linear(latent_dim, 64 * (output_channels // 8)),
+#             nn.ReLU(),
+#             nn.Unflatten(1, (64, output_channels // 8)),
+#             nn.ConvTranspose1d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1),
+#             nn.ReLU(),
+#             nn.ConvTranspose1d(32, 16, kernel_size=3, stride=2, padding=1, output_padding=1),
+#             nn.ReLU(),
+#             nn.ConvTranspose1d(16, output_channels, kernel_size=3, stride=2, padding=1, output_padding=1),
+#             nn.Sigmoid()
+#         )
+
+#     def forward(self, x):
+#         return self.decoder(x)
+
+# class CNNAutoencoder(nn.Module):
+#     def __init__(self, input_channels, latent_dim):
+#         super(CNNAutoencoder, self).__init__()
+#         self.encoder = CNNEncoder(input_channels, latent_dim)
+#         self.decoder = CNNDecoder(latent_dim, input_channels)
+
+#     def forward(self, x):
+#         latent = self.encoder(x)
+#         reconstructed = self.decoder(latent)
+#         return reconstructed
+
+# # Hyperparameters
+# input_channels = len(config['ts_cols'])
+# latent_dim = 128
+# learning_rate = 0.001
+# num_epochs = 50
+# batch_size = 32
+
+# # Prepare data
+# mv_ts_tensor = torch.tensor(mv_ts[config['ts_cols']].values, dtype=torch.float32)
+# mv_ts_tensor = mv_ts_tensor.unsqueeze(1)  # Add channel dimension
+# dataset = TensorDataset(mv_ts_tensor, mv_ts_tensor)
+# dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+# # Initialize model, loss function, and optimizer
+# model = CNNAutoencoder(input_channels, latent_dim)
+# criterion = nn.MSELoss()
+# optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+
+# # Training loop
+# for epoch in range(num_epochs):
+#     for data in dataloader:
+#         inputs, _ = data
+#         optimizer.zero_grad()
+#         outputs = model(inputs)
+#         loss = criterion(outputs, inputs)
+#         loss.backward()
+#         optimizer.step()
+    
+#     print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}')
+
+# # Save the model
+# torch.save(model.state_dict(), 'cnn_autoencoder.pth')
