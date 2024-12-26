@@ -15,6 +15,56 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.decomposition import PCA
 
 
+class CNNEncoder(nn.Module):
+    def __init__(self, input_channels, latent_dim):
+        super(CNNEncoder, self).__init__()
+        self.encoder = nn.Sequential(
+            nn.Conv1d(input_channels, 16, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Conv1d(16, 32, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Conv1d(32, 64, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Flatten(),
+            nn.Linear(64 * (input_channels // 8), latent_dim)
+        )
+
+    def forward(self, x):
+        return self.encoder(x)
+    
+
+class CNNDecoder(nn.Module):
+    def __init__(self, latent_dim, output_channels):
+        super(CNNDecoder, self).__init__()
+        self.decoder = nn.Sequential(
+            nn.Linear(latent_dim, 64 * (output_channels // 8)),
+            nn.ReLU(),
+            nn.Unflatten(1, (64, output_channels // 8)),
+            nn.ConvTranspose1d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose1d(32, 16, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose1d(16, output_channels, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.Sigmoid()
+        )
+
+
+    def forward(self, x):
+        return self.decoder(x)
+    
+
+
+class CNNAutoencoder(nn.Module):
+    def __init__(self, input_channels, latent_dim):
+        super(CNNAutoencoder, self).__init__()
+        self.encoder = CNNEncoder(input_channels, latent_dim)
+        self.decoder = CNNDecoder(latent_dim, input_channels)
+
+    def forward(self, x):
+        latent = self.encoder(x)
+        reconstructed = self.decoder(latent)
+        return reconstructed
+
 
 
 class Multivariate_TS_Clustering:
@@ -32,10 +82,11 @@ class Multivariate_TS_Clustering:
         self.seq_identifier_col = config['seq_identifier_col'] 
         self.time_step_col = config['time_step_col'] 
         self.ts_cols = config['ts_cols']
+        self.config = config
 
         self.mv_ts = mv_ts
+        print(self.config)
         self.meta_data = meta_data
-
 
 
 
@@ -158,88 +209,66 @@ class Multivariate_TS_Clustering:
         plt.xlabel('Time Steps')
         plt.ylabel('Time-series Variables')
         plt.show()
-
-
-
-
-
-
-
-# class CNNEncoder(nn.Module):
-#     def __init__(self, input_channels, latent_dim):
-#         super(CNNEncoder, self).__init__()
-#         self.encoder = nn.Sequential(
-#             nn.Conv1d(input_channels, 16, kernel_size=3, stride=2, padding=1),
-#             nn.ReLU(),
-#             nn.Conv1d(16, 32, kernel_size=3, stride=2, padding=1),
-#             nn.ReLU(),
-#             nn.Conv1d(32, 64, kernel_size=3, stride=2, padding=1),
-#             nn.ReLU(),
-#             nn.Flatten(),
-#             nn.Linear(64 * (input_channels // 8), latent_dim)
-#         )
-
-#     def forward(self, x):
-#         return self.encoder(x)
-
-# class CNNDecoder(nn.Module):
-#     def __init__(self, latent_dim, output_channels):
-#         super(CNNDecoder, self).__init__()
-#         self.decoder = nn.Sequential(
-#             nn.Linear(latent_dim, 64 * (output_channels // 8)),
-#             nn.ReLU(),
-#             nn.Unflatten(1, (64, output_channels // 8)),
-#             nn.ConvTranspose1d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1),
-#             nn.ReLU(),
-#             nn.ConvTranspose1d(32, 16, kernel_size=3, stride=2, padding=1, output_padding=1),
-#             nn.ReLU(),
-#             nn.ConvTranspose1d(16, output_channels, kernel_size=3, stride=2, padding=1, output_padding=1),
-#             nn.Sigmoid()
-#         )
-
-#     def forward(self, x):
-#         return self.decoder(x)
-
-# class CNNAutoencoder(nn.Module):
-#     def __init__(self, input_channels, latent_dim):
-#         super(CNNAutoencoder, self).__init__()
-#         self.encoder = CNNEncoder(input_channels, latent_dim)
-#         self.decoder = CNNDecoder(latent_dim, input_channels)
-
-#     def forward(self, x):
-#         latent = self.encoder(x)
-#         reconstructed = self.decoder(latent)
-#         return reconstructed
-
-# # Hyperparameters
-# input_channels = len(config['ts_cols'])
-# latent_dim = 128
-# learning_rate = 0.001
-# num_epochs = 50
-# batch_size = 32
-
-# # Prepare data
-# mv_ts_tensor = torch.tensor(mv_ts[config['ts_cols']].values, dtype=torch.float32)
-# mv_ts_tensor = mv_ts_tensor.unsqueeze(1)  # Add channel dimension
-# dataset = TensorDataset(mv_ts_tensor, mv_ts_tensor)
-# dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-
-# # Initialize model, loss function, and optimizer
-# model = CNNAutoencoder(input_channels, latent_dim)
-# criterion = nn.MSELoss()
-# optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
-# # Training loop
-# for epoch in range(num_epochs):
-#     for data in dataloader:
-#         inputs, _ = data
-#         optimizer.zero_grad()
-#         outputs = model(inputs)
-#         loss = criterion(outputs, inputs)
-#         loss.backward()
-#         optimizer.step()
     
-#     print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}')
 
-# # Save the model
-# torch.save(model.state_dict(), 'cnn_autoencoder.pth')
+    def convert_dataframe_to_3D_tensor(self):
+        """
+        Convert a DataFrame containing multi-variate sequences into a 3D PyTorch tensor.
+
+        Args:
+            df (pd.DataFrame): Input DataFrame containing sequences.
+            sequence_col (str): Column name identifying sequence groups.
+            feature_cols (list): List of column names to be treated as features.
+
+        Returns:
+            torch.Tensor: A 3D tensor of shape (num_sequences, num_columns, max_time_steps).
+        """
+        # Group the DataFrame by the sequence column
+        grouped = df.groupby(sequence_col)
+        
+        # Extract sequences and their lengths
+        sequences = [group[feature_cols].values for _, group in grouped]
+        lengths = [seq.shape[0] for seq in sequences]
+        max_length = max(lengths)
+        
+        # Pad sequences with zeros
+        padded_sequences = [np.pad(seq, ((0, max_length - len(seq)), (0, 0)), mode='constant') for seq in sequences]
+        
+        # Convert to tensor and rearrange to (num_sequences, num_columns, num_time_steps)
+        self.mv_ts_tensor = torch.tensor(padded_sequences).permute(0, 2, 1)  
+
+    def prepare_data(self): 
+        # Prepare data
+        print("-"*50 + "\nPreparing data for training the CNN Autoencoder\n" + "-"*50)
+        self.convert_dataframe_to_3D_tensor()
+        dataset = TensorDataset(self.mv_ts_tensor, self.mv_ts_tensor)
+        self.dataloader = DataLoader(dataset, batch_size=self.config['batch_size'], shuffle=True)
+        print(">> Training tensor size = ", self.mv_ts_tensor.size())
+    
+
+    def prepare_model_and_optmzr(self):
+        # Initialize model, loss function, and optimizer
+        print("-"*50 + "\nInitializing models and optimizers for training the CNN Autoencoder\n" + "-"*50)
+        self.model = CNNAutoencoder(self.config['input_channels'], self.config['latent_dim'])
+        print(">> Model architecture: \n", self.model)
+        self.criterion = nn.MSELoss()
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.config['learning_rate'])
+    
+
+    def train_CNN_AE(self):
+        # Training loop
+        for epoch in range(self.config['num_epochs']):
+            for data in self.dataloader:
+                inputs, _ = data
+                self.optimizer.zero_grad()
+                outputs = self.model(inputs)
+                loss = self.criterion(outputs, inputs)
+                loss.backward()
+                self.optimizer.step()
+            
+            print(f'Epoch {(epoch+1)}, Loss: {loss.item():.4f}')
+
+        # Save the model
+        torch.save(self.model.state_dict(), self.config['model_save_path'])
+
+

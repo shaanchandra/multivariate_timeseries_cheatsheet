@@ -209,7 +209,7 @@ class MultiVariate_TS_EDA():
 
 
     
-    def batch_start_time_corr_with_yield(self):
+    def batch_start_time_corr_with_yield(self, cluster_plots=False):
         """
         Analyzes the correlation between batch start time and yield (5K_VCC) by plotting and calculating rolling means.
         
@@ -221,25 +221,35 @@ class MultiVariate_TS_EDA():
         max_time_step_df = self.mv_ts.loc[self.mv_ts.groupby(self.seq_identifier_col)[self.time_step_col].idxmax(), [self.seq_identifier_col, 'START_TIME', '5K_VCC']]
 
         # Merge with meta_data
-        merged_df = pd.merge(self.meta_data, max_time_step_df, on=self.seq_identifier_col)
-        merged_df['START_TIME'] = pd.to_datetime(merged_df['START_TIME']).dt.strftime('%d-%m-%y')
+        self.merged_df = pd.merge(self.meta_data, max_time_step_df, on=self.seq_identifier_col)
+        self.merged_df['START_TIME'] = pd.to_datetime(self.merged_df['START_TIME']).dt.strftime('%d-%m-%y')
 
         # Plot the correlation between batch start time and yield
         plt.figure(figsize=(35, 10))
-        sns.lineplot(data=merged_df, x='START_TIME', y='5K_VCC', marker='o')
+        sns.lineplot(data=self.merged_df, x='START_TIME', y='5K_VCC', marker='o')
         # Calculate rolling mean
-        rolling_mean1 = merged_df['5K_VCC'].rolling(window=10).mean()
-        rolling_mean2 = merged_df['5K_VCC'].rolling(window=50).mean()
+        rolling_mean1 = self.merged_df['5K_VCC'].rolling(window=10).mean()
+        rolling_mean2 = self.merged_df['5K_VCC'].rolling(window=50).mean()
         # Plot the rolling mean
-        sns.lineplot(data=merged_df, x='START_TIME', y=rolling_mean1, label='Rolling Mean - 10', linewidth=3)
-        sns.lineplot(data=merged_df, x='START_TIME', y=rolling_mean2, label='Rolling Mean - 50', linewidth=3)
+        sns.lineplot(data=self.merged_df, x='START_TIME', y=rolling_mean1, label='Rolling Mean - 10', linewidth=3)
+        sns.lineplot(data=self.merged_df, x='START_TIME', y=rolling_mean2, label='Rolling Mean - 50', linewidth=3)
         plt.title('5K_VCC over Time')
         plt.xlabel('Batch Start Time')
         plt.ylabel('5K_VCC')
         plt.xticks(rotation=90)
+
+        if cluster_plots:
+            # Plot the correlation between batch start time and yield for each cluster
+            for cluster in self.merged_df['Cluster'].unique():
+                cluster_df = self.merged_df[self.merged_df['Cluster'] == cluster]
+                sns.scatterplot(data=cluster_df, x='START_TIME', y='5K_VCC', marker='x', s=200, linewidth=3, label=f'Cluster {cluster}')
+            plt.title('5K_VCC over Time by Cluster')
+            plt.xlabel('Batch Start Time')
+            plt.ylabel('5K_VCC')
+            plt.xticks(rotation=90)
+            plt.legend(title='Cluster')
         plt.show()
 
-        return merged_df
         
 
     
