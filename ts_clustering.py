@@ -16,17 +16,17 @@ from sklearn.decomposition import PCA
 
 
 class CNNEncoder(nn.Module):
-    def __init__(self, input_channels, latent_dim):
+    def __init__(self, input_channels):
         super(CNNEncoder, self).__init__()
         self.encoder = nn.Sequential(
-            nn.Conv1d(input_channels, 16, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(input_channels, 16, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
-            nn.Conv1d(16, 32, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
-            nn.Conv1d(32, 64, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(),
-            nn.Flatten(),
-            nn.Linear(64 * (input_channels // 8), latent_dim)
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
+            # nn.ReLU(),
+            # nn.Flatten(),
+            # nn.Linear(64 * (input_channels // 8), latent_dim)
         )
 
     def forward(self, x):
@@ -34,18 +34,18 @@ class CNNEncoder(nn.Module):
     
 
 class CNNDecoder(nn.Module):
-    def __init__(self, latent_dim, output_channels):
+    def __init__(self, output_channels):
         super(CNNDecoder, self).__init__()
         self.decoder = nn.Sequential(
-            nn.Linear(latent_dim, 64 * (output_channels // 8)),
+            # nn.Linear(latent_dim, 64 * (output_channels // 8)),
+            # nn.ReLU(),
+            # nn.Unflatten(1, (64, output_channels // 8)),
+            nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
-            nn.Unflatten(1, (64, output_channels // 8)),
-            nn.ConvTranspose1d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ConvTranspose2d(32, 16, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
-            nn.ConvTranspose1d(32, 16, kernel_size=3, stride=2, padding=1, output_padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose1d(16, output_channels, kernel_size=3, stride=2, padding=1, output_padding=1),
-            nn.Sigmoid()
+            nn.ConvTranspose2d(16, output_channels, kernel_size=3, stride=2, padding=1),
+            # nn.Sigmoid()
         )
 
 
@@ -55,14 +55,14 @@ class CNNDecoder(nn.Module):
 
 
 class CNNAutoencoder(nn.Module):
-    def __init__(self, input_channels, latent_dim):
+    def __init__(self, input_channels):
         super(CNNAutoencoder, self).__init__()
-        self.encoder = CNNEncoder(input_channels, latent_dim)
-        self.decoder = CNNDecoder(latent_dim, input_channels)
+        self.cnnencoder = CNNEncoder(input_channels)
+        self.cnndecoder = CNNDecoder(input_channels)
 
     def forward(self, x):
-        latent = self.encoder(x)
-        reconstructed = self.decoder(latent)
+        latent = self.cnnencoder(x)
+        reconstructed = self.cnndecoder(latent)
         return reconstructed
 
 
@@ -224,10 +224,10 @@ class Multivariate_TS_Clustering:
             torch.Tensor: A 3D tensor of shape (num_sequences, num_columns, max_time_steps).
         """
         # Group the DataFrame by the sequence column
-        grouped = df.groupby(sequence_col)
+        grouped = self.mv_ts.groupby(self.seq_identifier_col)
         
         # Extract sequences and their lengths
-        sequences = [group[feature_cols].values for _, group in grouped]
+        sequences = [group[self.ts_cols].values for _, group in grouped]
         lengths = [seq.shape[0] for seq in sequences]
         max_length = max(lengths)
         
@@ -235,7 +235,12 @@ class Multivariate_TS_Clustering:
         padded_sequences = [np.pad(seq, ((0, max_length - len(seq)), (0, 0)), mode='constant') for seq in sequences]
         
         # Convert to tensor and rearrange to (num_sequences, num_columns, num_time_steps)
-        self.mv_ts_tensor = torch.tensor(padded_sequences).permute(0, 2, 1)  
+        print(">> Max len seq for padding the rest = ", max_length)
+        self.mv_ts_tensor = torch.tensor(padded_sequences).permute(0, 2, 1).float()
+        print(">> The 3D tensor constructed (num_seqs, num_cols, max_time_steps) = ", self.mv_ts_tensor.size())
+
+
+
 
     def prepare_data(self): 
         # Prepare data
@@ -243,32 +248,62 @@ class Multivariate_TS_Clustering:
         self.convert_dataframe_to_3D_tensor()
         dataset = TensorDataset(self.mv_ts_tensor, self.mv_ts_tensor)
         self.dataloader = DataLoader(dataset, batch_size=self.config['batch_size'], shuffle=True)
-        print(">> Training tensor size = ", self.mv_ts_tensor.size())
+        print(">> Data prepared for training the CNN Autoencoder\n")
     
 
     def prepare_model_and_optmzr(self):
         # Initialize model, loss function, and optimizer
         print("-"*50 + "\nInitializing models and optimizers for training the CNN Autoencoder\n" + "-"*50)
-        self.model = CNNAutoencoder(self.config['input_channels'], self.config['latent_dim'])
+        self.model = CNNAutoencoder(self.config['input_channels'])
         print(">> Model architecture: \n", self.model)
+        print(">> Total trainable model parameters = ", sum(p.numel() for p in self.model.parameters() if p.requires_grad))
+
         self.criterion = nn.MSELoss()
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.config['learning_rate'])
+        print(">> Training on MSE loss using Adam optimizer\n")
+    
+    def _save_model(self):
+        # print("\n\n>> Saving model checkpoint at :   ", self.config['model_save_path'])
+        # Save the model
+        torch.save(self.model.state_dict(), self.config['model_save_path'])
     
 
     def train_CNN_AE(self):
         # Training loop
+        losses = []
+        lowest_loss = 5e40
         for epoch in range(self.config['num_epochs']):
+            loss_list = []
             for data in self.dataloader:
                 inputs, _ = data
                 self.optimizer.zero_grad()
-                outputs = self.model(inputs)
-                loss = self.criterion(outputs, inputs)
+                outputs = self.model(inputs.unsqueeze(1))
+                # print(inputs.shape, outputs.shape)
+                loss = self.criterion(outputs.squeeze(1), inputs)
                 loss.backward()
                 self.optimizer.step()
+                loss_list.append(loss.item())
             
-            print(f'Epoch {(epoch+1)}, Loss: {loss.item():.4f}')
+            epoch_loss = sum(loss_list)/len(loss_list)
+            if epoch_loss < lowest_loss:
+                lowest_loss = epoch_loss
+                best_epoch = epoch
+                self._save_model()
 
-        # Save the model
-        torch.save(self.model.state_dict(), self.config['model_save_path'])
+            
+            if epoch % 20 == 0:
+                if epoch_loss<500:
+                    losses.append(epoch_loss)
+                print(f'Epoch {(epoch+1)}, Loss: {epoch_loss:.4f}')
+            
+            if epoch%100==0:
+                print(f">> Current best model at epoch {best_epoch} and loss {lowest_loss : .4f}")
+
+        print(f'\n>> Final Epoch, Loss: {epoch_loss:.4f}')
+        # plot the loss
+        plt.plot(losses)
+        plt.title("CNN-AE training loss")
+        plt.legend()
+
 
 
