@@ -291,12 +291,12 @@ class Multivariate_TS_Clustering:
                 self._save_model()
 
             
-            if epoch % 20 == 0:
+            if epoch % 50 == 0:
                 if epoch_loss<500:
                     losses.append(epoch_loss)
                 print(f'Epoch {(epoch+1)}, Loss: {epoch_loss:.4f}')
             
-            if epoch%100==0:
+            if epoch%200==0:
                 print(f">> Current best model at epoch {best_epoch} and loss {lowest_loss : .4f}")
 
         print(f'\n>> Final Epoch, Loss: {epoch_loss:.4f}')
