@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import seaborn as sns
 from scipy import stats
+from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 from statsmodels.tsa.seasonal import seasonal_decompose
 
 import matplotlib.pyplot as plt
@@ -207,6 +208,20 @@ class MultiVariate_TS_EDA():
         axes[2].set_title(f"Residual for {column}", fontsize=14)
 
 
+
+    # Function to plot ACF, PACF
+    def plot_acf_pacf(self, column):
+        """
+        Plots the autocorrelation and partial autocorrelation functions for a specified column.
+        Parameters
+        ----------
+        column : str
+            The column name (from dropdown selection) denoting the time-series to plot ACF and PACF for.
+        """
+        fig, axes = plt.subplots(1, 2, sharex=False, figsize=(25, 5))
+        plot_acf(self.mv_ts[column], ax=axes[0], lags=100, alpha=0.05, auto_ylims=True, title=f"ACF for {column}")
+        plot_pacf(self.mv_ts[column], ax=axes[1], lags=100, alpha=0.05, auto_ylims=True, title=f"PACF for {column}")
+        plt.show()
 
     
     def batch_start_time_corr_with_yield(self, cluster_plots=False):
